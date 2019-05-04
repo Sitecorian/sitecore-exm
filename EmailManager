@@ -1,0 +1,121 @@
+namespace University.EXM.Manager
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using Microsoft.Extensions.DependencyInjection;
+    using Sitecore;
+    using Sitecore.DependencyInjection;
+    using Sitecore.EmailCampaign.Cd.Services;
+    using Sitecore.EmailCampaign.Model.Messaging;
+    using Sitecore.XConnect;
+    using Sitecore.XConnect.Client;
+    using Sitecore.XConnect.Collection.Model;
+
+    public class EmailManager {
+        private readonly IClientApiService _clientApiService;
+        private Contact _contact;
+        private const string Identifier = "website";
+        private const string EmailDescription = "school";
+
+        public EmailManager()
+        {
+            this._clientApiService = ServiceLocator.ServiceProvider.GetService<IClientApiService>();
+        }
+
+        public bool SendMessage(string messageId, string emailAddress, IDictionary<string, object> tokens)
+        {
+            IdentifyContact(emailAddress);
+            MissingThenCreateContact(emailAddress);
+            return result = DispatchEmail(messageId, emailAddress, tokens, false);
+        }
+
+        private bool DispatchEmail(string messageId, string emailAddress, IDictionary<string, object> tokens, bool result)
+        {
+            try
+            {
+                var contact = this._contact;
+                if (contact != null)
+                {
+                    var messageInfo = new AutomatedMessage
+                    {
+                        MessageId = new Guid(messageId),
+                        ContactIdentifier = contact.Identifiers.First(),
+                        CustomTokens = tokens,
+                        TargetLanguage = "en"
+                    };
+
+                    this._clientApiService.SendAutomatedMessage(messageInfo);
+                }
+
+                result = true;
+            }
+            catch (Exception exception)
+            {
+            }
+
+            return result;
+        }
+
+        private void MissingThenCreateContact(string emailAddress)
+        {
+            if (this._contact?.Identifiers?.Count == 0 || this._contact == null)
+            {
+                
+                this._contact = this.CreateContact(emailAddress);
+            }
+            
+        }
+
+        private void IdentifyContact(string emailAddress)
+        {
+            using (XConnectClient client = Sitecore.XConnect.Client.Configuration.SitecoreXConnectClientConfiguration.GetClient())
+            {
+                try
+                {
+                    var reference = new IdentifiedContactReference(Identifier, emailAddress);
+                    this._contact = client.Get<Contact>(reference, new ContactExpandOptions() { });
+                }
+                catch (XdbExecutionException ex)
+                {
+                    
+                }
+            }
+        }
+
+        private Contact CreateContact(string email)
+        {
+            using (Sitecore.XConnect.Client.XConnectClient client =
+                Sitecore.XConnect.Client.Configuration.SitecoreXConnectClientConfiguration.GetClient())
+            {
+                try
+                {
+                    var identifier = new ContactIdentifier(Identifier, email, ContactIdentifierType.Known);
+                    var newContact = new Contact(identifier);
+                    client.AddContact(newContact);
+                    var personalInfoFacet = new PersonalInformation()
+                    {
+                        PreferredLanguage = Context.Language.Name
+                    };
+
+                    var reference = new FacetReference(newContact, PersonalInformation.DefaultFacetKey);
+
+                    client.SetFacet(reference, personalInfoFacet);
+
+                    var emails = new EmailAddressList(new EmailAddress(email, true), EmailDescription);
+
+                    client.SetFacet(newContact, emails);
+
+                    client.Submit();
+
+                    
+                    return newContact;
+                }
+                catch (XdbExecutionException ex)
+                {
+                    return null;
+                }
+            }
+        }
+    }
+}
